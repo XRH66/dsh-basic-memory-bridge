@@ -53,7 +53,7 @@ dsh plugin --profile web add github:u9521/dsh-session-settings#237537bb11663fd02
 }
 ```
 
-4. 按实际环境替换尖括号内容；若服务进程找不到命令，使用 `Get-Command basic-memory` 返回的实际程序路径。探测工具后，在当前会话或全局设置勾选此MCP，确认模型可见 `mcp__basic_memory__search_notes`、`read_note`、`write_note` 等。
+4. 按实际环境替换尖括号内容；若服务进程找不到命令，使用 `Get-Command basic-memory` 返回的实际程序路径。探测工具后，只在需要个人记忆的聊天会话勾选此MCP，确认模型可见 `mcp__basic_memory__search_notes`、`read_note`、`write_note` 等。工程派工工作区保持关闭；若已有全局启用，先在工程工作区显式覆盖关闭，再创建worker会话，避免工程简报被自动保存。
 5. 给 `id: basic-memory-bridge` 的 Cordis配置设置 `project: personal`、`vaultPath: <同一个vault绝对路径>`。该插件不会替你挂载MCP，也不会自动修改会话开关。
 
 所有启用会话共享 `personal` 库。默认本地文件路径取 `DSH_MEMORY_VAULT`，未设置时为用户主目录 `codex-deepseek-data/vault`；显式 `vaultPath` 优先。管理状态及人工待审清单在Vault同级 `management/`，不进入记忆索引。
