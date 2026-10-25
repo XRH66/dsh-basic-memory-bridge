@@ -7,9 +7,7 @@ const manifest = JSON.parse(fs.readFileSync(path.join(root, 'release-files.json'
 const allowed = new Set(manifest);
 const errors = [];
 const seen = new Set();
-const machineUser = String.fromCharCode(49, 51, 49, 55, 57);
 const rules = [
-  ['machine username', new RegExp(machineUser)],
   ['absolute drive path', /\b[A-Za-z]:[\\/]/],
   ['private key', /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/],
   ['API credential', /\bsk-[A-Za-z0-9_-]{16,}/],
@@ -30,6 +28,7 @@ function walk(dir, prefix = '') {
     if (buffer.includes(0)) { errors.push(rel + ': binary content'); continue; }
     const text = buffer.toString('utf8');
     for (const [label, pattern] of rules) if (pattern.test(text)) errors.push(rel + ': ' + label);
+    for (const term of (process.env.RELEASE_FORBIDDEN_TERMS || '').split(',').filter(Boolean)) if (text.includes(term)) errors.push(rel + ': locally configured forbidden term');
     if (/\.(?:db|sqlite\d*|zip|tgz|png|jpe?g|log)$/i.test(rel) || /(^|\/)(?:\.env(?:\.|$)|\.harness|backups|experiments|vault|management|sessions|runtime)(?:\/|$)/.test(rel)) errors.push(rel + ': runtime/private artifact');
   }
 }
