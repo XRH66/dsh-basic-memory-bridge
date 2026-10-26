@@ -8,6 +8,8 @@
 - 事实、想法与日记自然降权；有新交流依据时适度强化，自己读写不加权。
 - `dafeiyu_records` 提供想法、日记、人物印象及本地图片收藏；自我档案固定上下文由独立人设插件提供。
 
+完整方案（协作流程、配置生成、人设与记忆接入）见 [codex-deepseek-starter](https://github.com/XRH66/codex-deepseek-starter)。以下也支持单独安装记忆桥。
+
 ## 前置与安装
 
 适配基线：DSH 0.2.1-rc.2、Basic Memory 0.24.1、Node.js 22.19+ 或24+。
@@ -45,6 +47,7 @@ dsh plugin --profile web add github:u9521/dsh-session-settings#237537bb11663fd02
 {
   "mcpServers": {
     "basic_memory": {
+      "transport": "stdio",
       "command": "basic-memory",
       "args": ["mcp", "--project", "personal"],
       "env": { "BASIC_MEMORY_CONFIG_DIR": "<与登记时相同的绝对路径>" }
