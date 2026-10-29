@@ -105,7 +105,7 @@ test('offline end-to-end: recall and capture through DSH 0.2.1 structuredContent
     messages: [directUser('Do you remember what tea I like?')],
     agent: fakeAgent(TARGET_SESSION_ID),
   });
-  const injected = decision.messages.find((message) => message.source.kind === 'basic-memory-recall');
+  const injected = decision.messages.find((message) => message.source.kind === 'basic-memory-context');
   assert.ok(injected);
   assert.match(injected.content[0].text, /personal\/chats\/facts\/tea/);
   assert.match(injected.content[0].text, /jasmine tea/);
@@ -147,7 +147,7 @@ test('offline: MCP responses without structuredContent still parse from text blo
     messages: [directUser('Where do I live?')],
     agent: fakeAgent(TARGET_SESSION_ID),
   });
-  assert.ok(decision.messages.some((message) => message.source.kind === 'basic-memory-recall'));
+  assert.ok(decision.messages.some((message) => message.source.kind === 'basic-memory-context'));
 
   bridge.onSessionEvent(session, turnStart(4));
   bridge.onSessionEvent(session, userMessage('I prefer oolong tea.'));

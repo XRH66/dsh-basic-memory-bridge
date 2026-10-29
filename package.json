@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-basic-memory-bridge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Automatic Basic Memory recall before a turn and durable capture after it for DeepSeek Harness.",
   "type": "module",
@@ -55,6 +55,9 @@
     "url": "https://github.com/XRH66/dsh-basic-memory-bridge/issues"
   },
   "devDependencies": {
-    "@local/dsh-global-settings": "git+https://github.com/XRH66/dsh-global-settings.git#35430464fb067bfa7de5dae9d29d7bb43e21d75d"
+    "@deepseek-ai/cordis": "4.0.5",
+    "@deepseek-ai/dsh-session": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-session-format-catalog": "0.2.1-rc.2",
+    "@local/dsh-global-settings": "git+https://github.com/XRH66/dsh-global-settings.git#f5778e8a7ddcf2be5ba83f895db587b384455a78"
   }
 }

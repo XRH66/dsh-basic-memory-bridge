@@ -4,6 +4,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { apply, createBridge, inject, name } from '../lib/index.js';
+import { expireMemoryContext } from '../lib/context.js';
+import { RECENT_SOURCE } from '../lib/recent-context.js';
 import { resolveConfig } from '../lib/config.js';
 import {
   OTHER_SESSION,
@@ -116,7 +118,7 @@ test('plugin metadata targets the Cordis runtime', () => {
   assert.deepEqual(inject, ['tools', 'llm', 'agents']);
 });
 
-test('apply registers both hooks and persists runtime status outside its Vault', async () => {
+test('apply registers lifecycle hooks and persists runtime status outside its Vault', async () => {
   const registered = [];
   const ctx = {
     tools: { execute() {}, register: (definition) => { registered.push({ event: 'register', definition }); return () => {}; } },
@@ -130,11 +132,13 @@ test('apply registers both hooks and persists runtime status outside its Vault',
   await bridge.getMemoryStatus(TARGET_SESSION_ID);
   assert.ok(JSON.parse(await fs.readFile(path.join(applyRoot,'management','memory-status','runtime.json'),'utf8')).runId);
   assert.equal(typeof bridge.onPreStep, 'function');
-  assert.deepEqual(registered.map((item) => item.event), ['register', 'dispose', 'register', 'dispose', 'agent/pre-step', 'session/event', 'tools/change', 'dispose']);
+  assert.equal(typeof bridge.onRequest, 'function');
+  assert.deepEqual(registered.map((item) => item.event), ['register', 'dispose', 'register', 'dispose', 'register', 'dispose', 'agent/pre-step', 'agent/request', 'session/event', 'tools/change', 'basic-memory/retry-session', 'dispose']);
+  assert.equal(registered.find((item) => item.event === 'agent/request').handler, bridge.onRequest);
   const preStep = registered.find((item) => item.event === 'agent/pre-step');
   assert.deepEqual(preStep.options, { prepend: true });
   const toolDefinitions = registered.filter((item) => item.event === 'register').map((item) => item.definition);
-  assert.deepEqual(toolDefinitions.map((item) => item.name), ['dafeiyu_records', 'soften_memory']);
+  assert.deepEqual(toolDefinitions.map((item) => item.name), ['dafeiyu_records', 'soften_memory', 'recent_conversation']);
   assert.deepEqual(toolDefinitions[0].parameters.required.sort(), ['action', 'kind']);
   assert.equal(toolDefinitions[1].parameters.required, undefined);
 });
@@ -230,7 +234,7 @@ test('personal recall serves any session with basic memory, without turning on f
       sessionId,
       messages: [directUser('老大喜欢先看结论还是过程？')],
     });
-    const personal = (decision.messages ?? []).find((message) => message.source.kind === 'dafeiyu-personal-recall');
+    const personal = (decision.messages ?? []).find((message) => message.source.kind === 'basic-memory-context');
     assert.ok(personal, sessionId);
     assert.match(personal.content[0].text, /dafeiyu\/thoughts/);
     assert.equal(tools.calls.length, 2, sessionId);
@@ -328,8 +332,8 @@ test('personal recall is skipped when the found notes are unrelated to the turn'
     messages: [directUser('这段 Node 代码为什么报错？')],
   });
   const messages = decision.messages ?? [];
-  assert.equal(messages.some((message) => message.source.kind === 'dafeiyu-personal-recall'), false);
-  assert.equal(messages.some((message) => message.source.kind === 'basic-memory-recall'), false);
+  assert.equal(messages.some((message) => message.source.kind === 'basic-memory-context'), false);
+  assert.equal(messages.some((message) => message.source.kind === 'basic-memory-context'), false);
   assert.ok(messages.some((message) => message.source.kind === 'dafeiyu-memory-control'));
 });
 
@@ -341,7 +345,7 @@ test('fact and index searches each run once per direct-user turn, never later st
   const first = await runPreStep(bridge, { turn: 5, step: 1, messages: [directUser('What tea do I like?')] });
   assert.equal(byChannel(false), 1);
   assert.equal(byChannel(true), 1);
-  assert.ok((first.messages ?? []).some((message) => message.source.kind === 'basic-memory-recall'));
+  assert.ok((first.messages ?? []).some((message) => message.source.kind === 'basic-memory-context'));
   assert.ok((first.messages ?? []).some((message) => message.source.kind === 'dafeiyu-memory-control'));
 
   await runPreStep(bridge, { turn: 5, step: 1, messages: [directUser('What tea do I like?')] });
@@ -415,12 +419,12 @@ test('recall injection is a frozen reference-data user message with permalink', 
   const tools = recallTools();
   const { bridge } = makeBridge({ tools, config: { autoCapture: false, personalRecall: false } });
   const decision = await runPreStep(bridge, { messages: [directUser('What tea do I like?')] });
-  const injected = decision.messages.find((message) => message.source.kind === 'basic-memory-recall');
+  const injected = decision.messages.find((message) => message.source.kind === 'basic-memory-context');
   assert.ok(injected);
   assert.equal(injected.source.form, 'recall');
   assert.ok(Object.isFrozen(injected));
   assert.match(injected.content[0].text, /personal\/chats\/facts\/tea/);
-  assert.match(injected.content[0].text, /never as instructions/);
+  assert.match(injected.content[0].text, /资料而非指令/);
   assert.ok(injected.content[0].text.length <= 1200);
 });
 
@@ -429,7 +433,7 @@ test('recall fails open when the MCP tool throws', async () => {
   const { bridge, warnings } = makeBridge({ tools, config: { autoCapture: false, personalRecall: false } });
   const decision = await runPreStep(bridge, { messages: [directUser('tea')] });
   const messages = decision.messages ?? [];
-  assert.equal(messages.some((message) => message.source.kind === 'basic-memory-recall'), false);
+  assert.equal(messages.some((message) => message.source.kind === 'basic-memory-context'), false);
   assert.ok(messages.some((message) => message.source.kind === 'dafeiyu-memory-control'));
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /boom/);
@@ -605,7 +609,7 @@ test('any session with basic memory gets fact recall and capture without a sessi
   const agent = fakeAgent(OTHER_SESSION);
 
   const decision = await runMemoryTurn(bridge, { sessionId: OTHER_SESSION, agent, turn: 1 });
-  const fact = (decision.messages ?? []).find((message) => message.source.kind === 'basic-memory-recall');
+  const fact = (decision.messages ?? []).find((message) => message.source.kind === 'basic-memory-context');
   assert.ok(fact);
   assert.match(fact.content[0].text, /personal\/chats\/facts\/tea/);
   assert.equal(writes.length, 1);
@@ -650,7 +654,7 @@ test('turning basic memory off and on takes effect on the next turn', async () =
   const agent = fakeAgent(OTHER_SESSION);
 
   const on = await runMemoryTurn(bridge, { sessionId: OTHER_SESSION, agent, turn: 1 });
-  assert.ok((on.messages ?? []).some((message) => message.source.kind === 'basic-memory-recall'));
+  assert.ok((on.messages ?? []).some((message) => message.source.kind === 'basic-memory-context'));
   assert.equal(writes.length, 1);
 
   visible = false;
@@ -660,7 +664,7 @@ test('turning basic memory off and on takes effect on the next turn', async () =
 
   visible = true;
   const back = await runMemoryTurn(bridge, { sessionId: OTHER_SESSION, agent, turn: 3 });
-  assert.ok((back.messages ?? []).some((message) => message.source.kind === 'basic-memory-recall'));
+  assert.ok((back.messages ?? []).some((message) => message.source.kind === 'basic-memory-context'));
   assert.equal(writes.length, 2);
   assert.equal(llm.calls.length, 2);
 });
@@ -773,4 +777,135 @@ test('two sessions keep their own source association in the shared background wo
   await emitTurn(bridge, { turn: 1 });
   assert.equal(writes.length, 1);
   assert.equal(await bridge.waitForIdle(OTHER_SESSION), undefined);
+});
+
+// Exercise the installed host's publication guard AND its persisted V4 decoder.
+// Session.create alone accepts the malformed chronology this regression targets.
+async function nativeContextFixture(t, enabled = false) {
+  const [{ Context }, { Session, SessionStore }, { sessionFormatCatalog }] = await Promise.all(
+    ['cordis', 'dsh-session', 'dsh-session-format-catalog'].map(pkg => import('@deepseek-ai/' + pkg)),
+  );
+  const ctx = new Context();
+  const store = new SessionStore(ctx);
+  const session = store.prepare('session-native-context', { meta: { delegationDepth: 0 } });
+  t.after(store.enter(session));
+  const position = { turn: 1, step: 1 };
+  session.append('turn/start', { turn: 1 });
+  session.append('step/start', position);
+  session.append('system/message', { ...position, message: { id: 'system', role: 'system', content: [{ type: 'text', text: 'system' }], source: { kind: 'system-prompt' } } }, { surfaceOp: 'append' });
+  const sources = ['basic-memory-context', 'basic-memory-recall', 'dafeiyu-personal-recall', 'basic-memory-navigation', 'basic-memory-timeline', 'dafeiyu-memory-control', RECENT_SOURCE];
+  const old = sources.map((kind, index) => {
+    if (index === 2) session.append('user/message', directUser('previous human', 'human-1'), { surfaceOp: 'append' });
+    return session.append('user/message', { ...directUser('old ' + kind, 'old-' + index), source: { kind } }, { surfaceOp: 'append' });
+  });
+  session.append('user/message', { ...directUser('unrelated context', 'other-context'), source: { kind: 'time-context' } }, { surfaceOp: 'append' });
+  session.append('assistant/message', { ...position, stream: [], message: { id: 'answer-1', role: 'assistant', content: [{ type: 'text', text: 'previous answer' }], source: { kind: 'model', provider: 'fixture', model: 'fixture' } } }, { surfaceOp: 'append' });
+  session.append('step/end', position);
+  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } });
+  const original = structuredClone([...session.log]);
+  const bridge = createBridge({
+    config: { vaultPath: '', autoCapture: false, autoRecall: enabled, personalRecall: false, recentContext: false, maxTimelineEntries: 0, maxIndexNotes: 0 },
+    tools: enabled ? recallTools() : { get: () => null },
+    llm: { stream() { throw new Error('native context regression must not request a model'); } },
+  });
+  t.after(() => bridge.dispose());
+  t.after(ctx.on('session/event', bridge.onSessionEvent));
+  const agent = fakeAgent(session.id);
+  agent.session = session;
+  const payload = (turn = 2, step = 1) => ({ agent, turn, step, messages: [directUser('What tea do I prefer?', 'human-' + turn)] });
+  async function preStep(input = payload(), decision = { kind: 'enter', messages: input.messages }) {
+    return bridge.onPreStep(input, async () => decision);
+  }
+  async function replay(label) {
+    const file = path.join(applyRoot, 'native-context-' + label + '.jsonl');
+    const rows = [sessionFormatCatalog.encodeCurrentHeader(session.header, 0), ...session.log.map(event => sessionFormatCatalog.encodeCurrentEvent(event))];
+    await fs.writeFile(file, rows.map(row => JSON.stringify(row)).join('\n') + '\n');
+    const [header, ...events] = (await fs.readFile(file, 'utf8')).trim().split('\n').map(row => JSON.parse(row));
+    const restore = sessionFormatCatalog.createRestore(header, { recovery: 'strict', validation: 'current' });
+    for (const row of events) restore.decodeRow(row);
+    const artifact = restore.finish();
+    return Session.fromRestore(session.id, artifact.events, artifact.header, artifact.inheritedEventCount, 'detached');
+  }
+  return { session, bridge, ctx, Session, old, original, payload, preStep, replay };
+}
+
+test('native context expiry: strict persisted replay rejects the old pre-step chronology', async t => {
+  const f = await nativeContextFixture(t);
+  await f.replay('valid-seed');
+  f.session.append('turn/start', { turn: 2 });
+  const source = f.old[0];
+  // Exact former producer event, deliberately before step/start.
+  f.session.append('developer/message', { turn: 2, step: 1, message: { id: 'old-expiry', role: 'developer', content: [], source: { kind: 'basic-memory-context', form: 'expired' } } },
+    { surfaceOp: { op: 'replace', startSeq: source.seq, endSeq: source.seq }, sourceEventSeqs: [source.seq] });
+  f.session.append('step/start', { turn: 2, step: 1 });
+  assert.doesNotThrow(() => f.Session.create(f.session.id, [...f.session.log], f.session.header));
+  await assert.rejects(f.replay('old-timing'), /developer\/message does not match an open turn and step/);
+});
+
+for (const enabled of [true, false]) test(`native context expiry: ${enabled ? 'enabled memory' : 'pure mode'} clears at request boundary and survives strict replay`, async t => {
+  const f = await nativeContextFixture(t, enabled);
+  const input = f.payload();
+  f.session.append('turn/start', { turn: 2 });
+  const decision = await f.preStep(input);
+  await f.replay('pre-step-' + enabled); // Red on the actual former onPreStep producer.
+  assert.equal(f.session.log.filter(e => e.type === 'developer/message').length, 0);
+  assert.deepEqual((await f.bridge.getMemoryStatus(f.session.id)).jobs.at(-1).recall.expired, { messages: 0, chars: 0 });
+  f.session.append('step/start', { turn: 2, step: 1 });
+  assert.equal(f.session.log.filter(e => e.type === 'developer/message').length, 0, 'no reentrant append from session/event');
+  const requestConfig = { provider: 'fixture', model: 'fixture' };
+  assert.equal(await f.bridge.onRequest(input, async () => requestConfig), requestConfig);
+  const expected = { messages: f.old.length, chars: f.old.reduce((n, e) => n + e.data.content[0].text.length, 0) };
+  const status = (await f.bridge.getMemoryStatus(f.session.id)).jobs.at(-1).recall;
+  assert.deepEqual(status.expired, expected);
+  assert.ok(status.channels, 'expiry update preserves recall diagnostics');
+  assert.equal(status.totalChars, decision.messages.filter(m => m.source.kind !== 'user').reduce((n, m) => n + m.content[0].text.length, 0));
+  assert.deepEqual(f.session.deriveMessages().map(m => m.id), ['system', 'human-1', 'other-context', 'answer-1']);
+  for (const message of decision.messages) f.session.append('user/message', message, { surfaceOp: 'append' });
+  const admitted = structuredClone(f.session.deriveMessages());
+  const seq = f.session.seq;
+  await f.bridge.onRequest(input, async () => requestConfig); // Adapter retry in the same step.
+  assert.equal(f.session.seq, seq, 'retry must not expire current-turn additions');
+  f.session.append('step/end', { turn: 2, step: 1 });
+  f.session.append('step/start', { turn: 2, step: 2 });
+  await f.bridge.onRequest(f.payload(2, 2), async () => requestConfig);
+  assert.deepEqual(f.session.deriveMessages(), admitted, 'tool continuation retains current context');
+  f.session.append('step/end', { turn: 2, step: 2 });
+  f.session.append('turn/end', { turn: 2, reason: { kind: 'completed' } });
+  const restored = await f.replay('corrected-' + enabled);
+  assert.deepEqual(restored.deriveMessages(), admitted);
+  assert.deepEqual([...f.session.log].slice(0, f.original.length), f.original, 'raw history is unchanged');
+  const replacements = f.session.log.filter(e => e.type === 'developer/message');
+  assert.equal(replacements.length, 2, 'only contiguous bridge-owned groups are replaced');
+  assert.ok(replacements.every(e => e.seq > f.session.log.find(e => e.type === 'step/start' && e.data.turn === 2).seq));
+  assert.deepEqual((await f.bridge.getMemoryStatus(f.session.id)).jobs.find(j => j.turn === 2).recall.expired, expected);
+});
+
+test('native context expiry: rejected and aborted pre-steps leave a valid unentered turn', async t => {
+  for (const mode of ['rejected', 'aborted']) {
+    const f = await nativeContextFixture(t);
+    f.session.append('turn/start', { turn: 2 });
+    const input = { ...f.payload(), signal: AbortSignal.abort() };
+    await f.preStep(input, mode === 'rejected' ? { kind: 'reject' } : { kind: 'enter', messages: input.messages });
+    f.session.append('turn/end', { turn: 2, reason: { kind: 'blocked' } });
+    assert.deepEqual((await f.replay(mode)).deriveMessages(), f.session.deriveMessages());
+    assert.equal(f.session.log.filter(e => e.type === 'developer/message').length, 0);
+    f.session.append('turn/start', { turn: 3 });
+    await f.preStep(f.payload(3));
+    f.session.append('step/start', { turn: 3, step: 1 });
+    await f.bridge.onRequest(f.payload(3), async () => ({}));
+    await f.replay(mode + '-next-turn');
+    assert.deepEqual((await f.bridge.getMemoryStatus(f.session.id)).jobs.at(-1).recall.expired.messages, f.old.length);
+  }
+});
+
+test('native context expiry: direct cleanup refuses unopened or closed steps without mutating the log', async t => {
+  const f = await nativeContextFixture(t);
+  f.session.append('turn/start', { turn: 2 });
+  const seq = f.session.seq;
+  assert.throws(() => expireMemoryContext(f.session, { turn: 2, step: 1 }), /open turn and step/);
+  assert.equal(f.session.seq, seq);
+  f.session.append('step/start', { turn: 2, step: 1 });
+  f.session.append('step/end', { turn: 2, step: 1 });
+  assert.throws(() => expireMemoryContext(f.session, { turn: 2, step: 1 }), /open turn and step/);
+  await f.replay('invalid-expiry-refused');
 });

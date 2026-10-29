@@ -11,25 +11,25 @@ import { maintainIndexes } from '../lib/maintenance.js';
 import { createBridge } from '../lib/index.js';
 import { readMemoryStatus } from '@local/dsh-global-settings/memory-status';
 
-const factId='personal/chats/facts/用户-归纳偏好';
+const factId='personal/chats/facts/用户-评价偏好';
 const indexId='personal/index/表达偏好';
 const profileId='personal/dafeiyu/thoughts/自我档案';
-const oldText='不要归纳读者。可以自然表达，文字清楚。';
-const newText='不必每句话都归纳读者，按话题自然回应。可以自然表达，文字清楚。';
+const oldText='不要评价老大。可以有点皮，正事认真。';
+const newText='不必每句话都评价老大，按话题自然回应。可以有点皮，正事认真。';
 function seed(store) {
   const add = (permalink,title,content,frontmatter={},tags=[]) => store.notes.set(permalink,{
     permalink,title,content,frontmatter, tags, checksum:'initial-'+permalink, directory:permalink.replace(/^personal\//,'').split('/').slice(0,-1).join('/'),
     filePath:permalink.replace(/^personal\//,'')+'.md',
   });
-  add(factId,'用户 - 归纳偏好','<!-- dsh-fact-memory -->\n# 用户 - 归纳偏好\n\n- [preference] 不要每句话都归纳我\n- subject: 用户\n- attribute: 归纳偏好\n',
-    {memory_id:'fact-1',status:'active',subject:'用户',attribute:'归纳偏好',value:'不要每句话都归纳我',memory_kind:'fact',recorded_at:'2026-10-24T10:00:00Z'},['dsh-memory']);
-  add(indexId,'表达偏好','# 表达偏好\n\n## 不要归纳\n- [[用户 - 归纳偏好]] —— 永远不许归纳\n\n保留我的手写段落。',{},['index','moc']);
-  add(profileId,'自我档案','<!-- dafeiyu-record kind=thoughts -->\n# 自我档案\n\n## 10:00\n- 发生日期: 日期未明\n- 记录日期: 2026-10-24 10:00\n'+oldText+'\n\n## 11:00\n- 发生日期: 日期未明\n- 记录日期: 2026-10-24 11:00\n我喜欢虚构植物标本。\n',
+  add(factId,'用户 - 评价偏好','<!-- dsh-fact-memory -->\n# 用户 - 评价偏好\n\n- [preference] 不要每句话都评价我\n- subject: 用户\n- attribute: 评价偏好\n',
+    {memory_id:'fact-1',status:'active',subject:'用户',attribute:'评价偏好',value:'不要每句话都评价我',memory_kind:'fact',recorded_at:'2026-10-24T10:00:00Z'},['dsh-memory']);
+  add(indexId,'表达偏好','# 表达偏好\n\n## 不要评价\n- [[用户 - 评价偏好]] —— 永远不许评价\n\n保留我的手写段落。',{},['index','moc']);
+  add(profileId,'自我档案','<!-- dafeiyu-record kind=thoughts -->\n# 自我档案\n\n## 10:00\n- 发生日期: 日期未明\n- 记录日期: 2026-10-24 10:00\n'+oldText+'\n\n## 11:00\n- 发生日期: 日期未明\n- 记录日期: 2026-10-24 11:00\n我喜欢白米饭。\n',
     {dafeiyu:'true',dafeiyu_kind:'thoughts',status:'active',recorded_at:'2026-10-24T02:00:00Z'});
 }
 const plan = JSON.stringify({
   assignments:[],
-  headings:[{index:indexId,find:'## 不要归纳',replace:'## 归纳与回应'}],
+  headings:[{index:indexId,find:'## 不要评价',replace:'## 评价与回应'}],
   profile:[{entryIndex:1,find:oldText,text:newText}],
 });
 
@@ -37,20 +37,26 @@ test('navigation independently reads latest facts; ignores obsolete prose, missi
   const store=memoryStore(); seed(store);
   const config=resolveConfig({personalRecall:false,maxRecallNotes:3,maxIndexChars:600});
   const agent=fakeAgent(TARGET_SESSION);
-  const text=await recallNavigation({config,tools:store.tools,agent,messages:[directUser('归纳偏好')]});
-  assert.match(text,/不要每句话都归纳我/);
-  assert.doesNotMatch(text,/永远不许归纳|手写段落/);
+  const text=await recallNavigation({config,tools:store.tools,agent,messages:[directUser('评价偏好')]});
+  assert.match(text,/不要每句话都评价我/);
+  assert.doesNotMatch(text,/永远不许评价|手写段落/);
   assert.ok(text.length<=600);
   assert.match(text,/personal\/index\/表达偏好/);
   const b=createBridge({config,tools:store.tools,llm:fakeLlm('{"actions":[]}')});
-  const r=await runPreStep(b,{messages:[directUser('归纳偏好')],agent});
-  assert.equal(r.messages.filter(m=>m.source.kind==='basic-memory-navigation').length,1);
-  assert.equal(r.messages.filter(m=>m.source.kind==='basic-memory-recall').length,1);
+  const r=await runPreStep(b,{messages:[directUser('评价偏好')],agent});
+  const contexts=r.messages.filter(m=>m.source.kind==='basic-memory-context');
+  assert.equal(contexts.length,1);
+  assert.equal(contexts[0].content[0].text.split('不要每句话都评价我').length-1,1,'same fact from navigation is deduplicated');
+  assert.ok(contexts[0].content[0].text.length<=config.maxContextChars);
+  const recall=(await b.getMemoryStatus(TARGET_SESSION)).jobs.at(-1).recall;
+  assert.equal(recall.channels.facts.count,1);
+  assert.ok(recall.channels.navigation.dropped.some(n=>n.permalink===factId && n.reason==='duplicate'));
+  await b.dispose();
 });
 
 test('unrelated, inactive, QA and softened references cannot revive through navigation', async () => {
   const store=memoryStore();seed(store);
-  const ctx={config:resolveConfig({}),tools:store.tools,agent:fakeAgent(TARGET_SESSION),messages:[directUser('归纳偏好')]};
+  const ctx={config:resolveConfig({}),tools:store.tools,agent:fakeAgent(TARGET_SESSION),messages:[directUser('评价偏好')]};
   store.notes.get(indexId).frontmatter.status='archived';
   assert.equal(await recallNavigation(ctx),'');
   delete store.notes.get(indexId).frontmatter.status;
@@ -70,16 +76,19 @@ test('a navigation page does not consume any of the three direct fact slots', as
   const store=memoryStore();seed(store);
   const first=store.notes.get(factId);
   for(const name of ['长度','语气'])store.notes.set(factId+'-'+name,{
-    ...structuredClone(first),permalink:factId+'-'+name,title:'用户 - 归纳偏好'+name,
+    ...structuredClone(first),permalink:factId+'-'+name,title:'用户 - 评价偏好'+name,
     content:first.content+'\n- [preference] '+name+'另一个现有偏好',
     frontmatter:{...first.frontmatter,memory_id:'fact-'+name},
   });
   const bridge=createBridge({config:{personalRecall:false,maxRecallNotes:3,maxIndexNotes:1},tools:store.tools,llm:fakeLlm('{"actions":[]}')});
-  const result=await runPreStep(bridge,{agent:fakeAgent(TARGET_SESSION),messages:[directUser('归纳偏好')]});
-  const facts=result.messages.find(m=>m.source.kind==='basic-memory-recall').content[0].text;
-  const index=result.messages.find(m=>m.source.kind==='basic-memory-navigation').content[0].text;
-  assert.match(facts,/长度另一个现有偏好/);assert.match(facts,/语气另一个现有偏好/);assert.match(facts,/不要每句话都归纳我/);
-  assert.ok(facts.length<=1200);assert.ok(index.length<=600);
+  const result=await runPreStep(bridge,{agent:fakeAgent(TARGET_SESSION),messages:[directUser('评价偏好')]});
+  const facts=result.messages.find(m=>m.source.kind==='basic-memory-context').content[0].text;
+  assert.match(facts,/长度另一个现有偏好/);assert.match(facts,/语气另一个现有偏好/);assert.match(facts,/不要每句话都评价我/);
+  assert.ok(facts.length<=resolveConfig({}).maxContextChars);
+  const recall=(await bridge.getMemoryStatus(TARGET_SESSION)).jobs.at(-1).recall;
+  assert.equal(recall.channels.facts.count,3,'navigation does not consume direct fact slots');
+  assert.ok(recall.channels.navigation.dropped.some(n=>n.permalink===factId && n.reason==='duplicate'));
+  await bridge.dispose();
 });
 
 test('correction synchronizes linked rows and one self-profile entry through existing writer', async () => {
@@ -87,11 +96,11 @@ test('correction synchronizes linked rows and one self-profile entry through exi
   const ctx={config:resolveConfig({}),tools:store.tools,agent:fakeAgent(TARGET_SESSION),sessionId:TARGET_SESSION,llm:fakeLlm(plan)};
   const result=await maintainIndexes(ctx,[{action:'CORRECT',permalink:factId,memoryId:'fact-1'}]);
   assert.equal(result.updated,1);assert.equal(result.profileUpdated,1);
-  assert.match(store.notes.get(indexId).content,/不要每句话都归纳我/);
+  assert.match(store.notes.get(indexId).content,/不要每句话都评价我/);
   assert.match(store.notes.get(indexId).content,/保留我的手写段落/);
-  assert.doesNotMatch(store.notes.get(indexId).content,/永远不许归纳|## 不要归纳/);
-  assert.match(store.notes.get(profileId).content,/我喜欢虚构植物标本/);
-  assert.match(store.notes.get(profileId).content,/可以自然表达，文字清楚/);
+  assert.doesNotMatch(store.notes.get(indexId).content,/永远不许评价|## 不要评价/);
+  assert.match(store.notes.get(profileId).content,/我喜欢白米饭/);
+  assert.match(store.notes.get(profileId).content,/可以有点皮，正事认真/);
   assert.match(store.notes.get(profileId).content,/记录日期: 2026-10-24 10:00/);
   assert.equal(store.notes.get(factId).frontmatter.memory_id,'fact-1');
 });
@@ -105,7 +114,7 @@ test('a concurrent index edit is preserved and reported for retry', async () => 
   }};
   await assert.rejects(maintainIndexes({config:resolveConfig({}),tools:store.tools,agent:fakeAgent(TARGET_SESSION),sessionId:TARGET_SESSION,llm},[{action:'CORRECT',permalink:factId}]),/WRITE_CONFLICT/);
   assert.match(store.notes.get(indexId).content,/用户刚补的内容/);
-  assert.match(store.notes.get(profileId).content,/不要归纳读者/);
+  assert.match(store.notes.get(profileId).content,/不要评价老大/);
 });
 
 test('profile read failure and invalid ownership stay failures instead of reporting successful sync', async () => {
@@ -118,7 +127,7 @@ test('profile read failure and invalid ownership stay failures instead of report
   }};}};
   const ctx={config:resolveConfig({}),tools,agent:fakeAgent(TARGET_SESSION),sessionId:TARGET_SESSION,llm:fakeLlm(plan)};
   await assert.rejects(maintainIndexes(ctx,[{action:'CORRECT',permalink:factId}]),/MEMORY_TOOL_FAILED/);
-  assert.match(store.notes.get(indexId).content,/永远不许归纳/);
+  assert.match(store.notes.get(indexId).content,/永远不许评价/);
   offline=false;store.notes.get(profileId).content='# not a managed profile';
   await assert.rejects(maintainIndexes(ctx,[{action:'CORRECT',permalink:factId}]),/INVALID_SELF_PROFILE/);
 });
@@ -127,15 +136,15 @@ test('a source changed while planning cannot apply an obsolete correction', asyn
   const store=memoryStore();seed(store);
   const llm={async *stream(){store.notes.get(factId).checksum='new-source';yield {type:'text-delta',text:plan};}};
   await assert.rejects(maintainIndexes({config:resolveConfig({}),tools:store.tools,agent:fakeAgent(TARGET_SESSION),sessionId:TARGET_SESSION,llm},[{action:'CORRECT',permalink:factId}]),/SOURCE_CHANGED/);
-  assert.match(store.notes.get(indexId).content,/永远不许归纳/);
-  assert.match(store.notes.get(profileId).content,/不要归纳读者/);
+  assert.match(store.notes.get(indexId).content,/永远不许评价/);
+  assert.match(store.notes.get(profileId).content,/不要评价老大/);
 });
 
-test('real hooks persist capture/no-action status, keep failed sync pending, and retry next completed turn', async () => {
+test('real hooks persist capture/no-action status, keep failed sync pending without bypassing backoff on a new turn', async () => {
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'dafeiyu-index-test-'));
   const vault=path.join(root,'vault'); await fs.mkdir(vault);
   const store=memoryStore();seed(store);
-  const correction=JSON.stringify({actions:[{action:'CORRECT',kind:'fact',subject:'用户',attribute:'归纳偏好',value:'不用每句都归纳我',target_memory_id:'fact-1',evidence:'不用每句都归纳我'}]});
+  const correction=JSON.stringify({actions:[{action:'CORRECT',kind:'fact',subject:'用户',attribute:'评价偏好',value:'不用每句都评价我',target_memory_id:'fact-1',evidence:'不用每句都评价我'}]});
   const llm=fakeLlm([correction,'bad json','{"actions":[]}',plan]);
   const bridge=createBridge({config:{vaultPath:vault,personalRecall:false,maxIndexNotes:0},tools:store.tools,llm});
   const agent=fakeAgent(TARGET_SESSION);
@@ -148,7 +157,7 @@ test('real hooks persist capture/no-action status, keep failed sync pending, and
     await bridge.waitForIdle(TARGET_SESSION);
   }
   try{
-    await turn(1,'刚才说错了，不用每句都归纳我');
+    await turn(1,'刚才说错了，不用每句都评价我');
     let state=await bridge.getMemoryStatus(TARGET_SESSION);
     assert.equal(state.jobs.at(-1).state,'saved');
     assert.equal(state.jobs.at(-1).maintenance,'failed');
@@ -156,7 +165,12 @@ test('real hooks persist capture/no-action status, keep failed sync pending, and
     await turn(2,'嗯嗯');
     state=await bridge.getMemoryStatus(TARGET_SESSION);
     assert.equal(state.jobs.at(-1).state,'no-durable-actions');
-    assert.equal(state.jobs.at(-1).maintenance,'saved');
+    assert.equal(state.jobs.at(-1).maintenance,undefined);
+    assert.equal(state.pending.length,1);
+    assert.equal(llm.calls.length,3);
+    await bridge.retryPending({force:true});
+    state=await bridge.getMemoryStatus(TARGET_SESSION);
+    assert.equal(state.jobs[0].maintenance,'saved');
     assert.equal(state.pending.length,0);
     const api=await readMemoryStatus(path.join(path.dirname(vault),'management','memory-status'),TARGET_SESSION);
     assert.equal(api.pendingCount,0);

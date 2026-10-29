@@ -66,14 +66,14 @@ test('parseSearchNotes excludes subjective notes, inactive facts and history unl
   assert.equal(parseSearchNotes(mcpResult({ results: [old] }), 'what tea did I prefer before?').length, 1);
 });
 
-test('selectRecallNotes filters by score, deduplicates permalinks, sorts, and caps', () => {
+test('selectRecallNotes filters by score, deduplicates memory ids, sorts, and caps', () => {
   const notes = [
     note({ permalink: 'personal/chats/facts/a', score: 0.4 }),
     note({ permalink: 'personal/chats/facts/b', score: 0.9 }),
     note({ permalink: 'personal/chats/facts/a', score: 0.95 }),
     note({ permalink: 'personal/chats/facts/c', score: 0.2 }),
     note({ permalink: 'personal/chats/facts/d', score: null }),
-  ];
+  ].map(n => ({ ...n, metadata: { ...n.metadata, memory_id: n.permalink } }));
   const selected = selectRecallNotes(notes, { maxRecallNotes: 3, minRecallScore: 0.25 });
   assert.deepEqual(selected.map((item) => item.permalink), ['personal/chats/facts/a', 'personal/chats/facts/b', 'personal/chats/facts/d']);
   assert.equal(selected[0].score, 0.95);
