@@ -1,5 +1,7 @@
 # dsh-basic-memory-bridge
 
+> **兼容范围（2026-10-29）**：本方案已验证 DSH **0.2.1-rc.2**。官方 **0.2.2-alpha.2** 涉及工具、提示词和会话接口调整，尚未完成兼容验证；不要将本次记忆插件更新视为宿主升级许可。先保留现用环境，在隔离部署验证新版。见[官方更新说明](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.2-alpha.2)。新版宿主要求 Node.js 24.9+；下文较低运行时要求只对应旧适配基线。
+
 把官方 Basic Memory 接入 DeepSeek Harness 的个人长期记忆流程。非官方插件；MIT。
 
 - 回答前统一选择事实、索引导航、个人记录与近期动态，去重并控制总上下文预算。
@@ -88,3 +90,7 @@ npm run privacy
 0.2.0 将过期记忆上下文清理移到原生 Session 已打开 step 的请求边界，保留原始事件历史，并验证严格回放。
 
 升级步骤见 [升级指南](https://github.com/XRH66/codex-deepseek-starter/blob/main/docs/upgrade.md)，旧记忆迁移见 [记忆迁移指南](https://github.com/XRH66/codex-deepseek-starter/blob/main/docs/memory-migration.md)。升级在会话空闲时更新选定profile的插件并重载；不要在补写队列未处理完时切换数据目录。配置、Vault与管理目录在仓库外。完整新系统安装及真实模型闭环尚未在本发布副本验证。
+
+## 本次发布与维护边界
+
+本页说明对应已发布插件；公开副本不代表用户的运行进程已经更新。升级先核对版本和路径、备份，再按[统一升级指南](https://github.com/XRH66/codex-deepseek-starter/blob/main/docs/upgrade.md)操作。每次涉及重启，执行者必须先说明影响、保存本地续接记录并暂停，等待用户手动重启；随后核验实际加载。旧库整理在基础设施验收后单独执行。
